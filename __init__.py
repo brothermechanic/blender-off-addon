@@ -42,12 +42,10 @@ bl_info = {
     "name": "OFF format",
     "description": "Import-Export OFF, Import/export simple OFF mesh.",
     "author": "Alex Tsui, Mateusz Kłoczko",
-    "version": (0, 3),
-    "blender": (2, 74, 0),
+    "version": (0, 4),
+    "blender": (2, 80, 0),
     "location": "File > Import-Export",
-    "warning": "", # used for warning icon and text in addons panel
-    "wiki_url": "http://wiki.blender.org/index.php/Extensions:2.5/Py/"
-                "Scripts/My_Script",
+    "warning": "",
     "category": "Import-Export"}
 
 class ImportOFF(bpy.types.Operator, ImportHelper):
@@ -55,12 +53,12 @@ class ImportOFF(bpy.types.Operator, ImportHelper):
     bl_idname = "import_mesh.off"
     bl_label = "Import OFF Mesh"
     filename_ext = ".off"
-    filter_glob = StringProperty(
+    filter_glob: StringProperty(
         default="*.off",
         options={'HIDDEN'},
     )
 
-    axis_forward = EnumProperty(
+    axis_forward: EnumProperty(
             name="Forward",
             items=(('X', "X Forward", ""),
                    ('Y', "Y Forward", ""),
@@ -71,7 +69,7 @@ class ImportOFF(bpy.types.Operator, ImportHelper):
                    ),
             default='Y',
             )
-    axis_up = EnumProperty(
+    axis_up: EnumProperty(
             name="Up",
             items=(('X', "X Up", ""),
                    ('Y', "Y Up", ""),
@@ -100,9 +98,9 @@ class ImportOFF(bpy.types.Operator, ImportHelper):
 
         scene = bpy.context.scene
         obj = bpy.data.objects.new(mesh.name, mesh)
-        scene.objects.link(obj)
-        scene.objects.active = obj
-        obj.select = True
+        scene.collection.objects.link(obj)
+        context.view_layer.objects.active = obj
+        obj.select_set(True)
 
         obj.matrix_world = global_matrix
 
@@ -114,14 +112,14 @@ class ExportOFF(bpy.types.Operator, ExportHelper):
     """Save an OFF Mesh file"""
     bl_idname = "export_mesh.off"
     bl_label = "Export OFF Mesh"
-    filter_glob = StringProperty(
+    filter_glob: StringProperty(
         default="*.off",
         options={'HIDDEN'},
     )
     check_extension = True
     filename_ext = ".off"
 
-    axis_forward = EnumProperty(
+    axis_forward: EnumProperty(
             name="Forward",
             items=(('X', "X Forward", ""),
                    ('Y', "Y Forward", ""),
@@ -132,7 +130,7 @@ class ExportOFF(bpy.types.Operator, ExportHelper):
                    ),
             default='Y',
             )
-    axis_up = EnumProperty(
+    axis_up: EnumProperty(
             name="Up",
             items=(('X', "X Up", ""),
                    ('Y', "Y Up", ""),
@@ -143,7 +141,7 @@ class ExportOFF(bpy.types.Operator, ExportHelper):
                    ),
             default='Z',
             )
-    use_colors = BoolProperty(
+    use_colors: BoolProperty(
             name="Vertex Colors",
             description="Export the active vertex color layer",
             default=False,
@@ -167,15 +165,22 @@ def menu_func_import(self, context):
 def menu_func_export(self, context):
     self.layout.operator(ExportOFF.bl_idname, text="OFF Mesh (.off)")
 
+classes =  (ImportOFF,
+            ExportOFF)
+
 def register():
-    bpy.utils.register_module(__name__)
-    bpy.types.INFO_MT_file_import.append(menu_func_import)
-    bpy.types.INFO_MT_file_export.append(menu_func_export)
+    from bpy.utils import register_class
+    for cls in classes:
+        register_class(cls)
+    bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+    bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
 
 def unregister():
-    bpy.utils.unregister_module(__name__)
-    bpy.types.INFO_MT_file_import.remove(menu_func_import)
-    bpy.types.INFO_MT_file_export.remove(menu_func_export)
+    from bpy.utils import unregister_class
+    for cls in classes:
+        unregister_class(cls)
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
 
 def load(operator, context, filepath):
     # Parse mesh from OFF file
@@ -260,24 +265,26 @@ def save(operator, context, filepath,
     if global_matrix is None:
         global_matrix = mathutils.Matrix()
     scene = context.scene
-    obj = scene.objects.active
-    mesh = obj.to_mesh(scene, APPLY_MODIFIERS, 'PREVIEW')
+    obj = context.active_object
+    if not obj:
+        return {'FINISHED'}
+    mesh = obj.to_mesh(context.depsgraph, APPLY_MODIFIERS)
 
     # Apply the inverse transformation
-    obj_mat = obj.matrix_world
-    mesh.transform(global_matrix * obj_mat)
+    mesh.transform(global_matrix @ obj.matrix_world)
 
     verts = mesh.vertices[:]
-    facets = [ f for f in mesh.tessfaces ]
+    mesh.calc_loop_triangles()
+    facets = [ f for f in mesh.loop_triangles ]
     # Collect colors by vertex id
     colors = False
     vertex_colors = None
     if use_colors:
-        colors = mesh.tessface_vertex_colors.active
+        colors = mesh.vertex_colors.active
     if colors:
         colors = colors.data
         vertex_colors = {}
-        for i, facet in enumerate(mesh.tessfaces):
+        for i, facet in enumerate(mesh.loop_triangles):
             color = colors[i]
             color = color.color1[:], color.color2[:], color.color3[:], color.color4[:]
             for j, vidx in enumerate(facet.vertices):
@@ -306,7 +313,7 @@ def save(operator, context, filepath,
         fp.write('\n')
 
     #for facet in facets:
-    for i, facet in enumerate(mesh.tessfaces):
+    for i, facet in enumerate(mesh.loop_triangles):
         fp.write('%d' % len(facet.vertices))
         for vid in facet.vertices:
             fp.write(' %d' % vid)
