@@ -104,7 +104,7 @@ class ImportOFF(bpy.types.Operator, ImportHelper):
 
         obj.matrix_world = global_matrix
 
-        scene.update()
+        context.view_layer.update()
 
         return {'FINISHED'}
 
@@ -268,7 +268,7 @@ def save(operator, context, filepath,
     obj = context.active_object
     if not obj:
         return {'FINISHED'}
-    mesh = obj.to_mesh(context.depsgraph, APPLY_MODIFIERS)
+    mesh = obj.evaluated_get(context.evaluated_depsgraph_get()).to_mesh()
 
     # Apply the inverse transformation
     mesh.transform(global_matrix @ obj.matrix_world)
